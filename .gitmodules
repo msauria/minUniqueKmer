@@ -1,0 +1,7 @@
+[submodule "libdivsufsort"]
+	path = libdivsufsort
+	url = https://github.com/mkirsche/libdivsufsort.git
+[submodule "libdivsufsort @ 5f60d6f"]
+	path = libdivsufsort
+	url = https://github.com/mkirsche/libdivsufsort.git
+	branch = sapling
