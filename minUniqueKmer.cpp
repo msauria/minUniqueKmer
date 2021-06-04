@@ -72,12 +72,12 @@ vector<size_t> getLCP()
 void print_info(void)
 {
   std::cout << "Find minimum unique k-mer bedgraphs ver. 1.0\n"
-        << "\nUsage:\nminUniqueKmer <genome_fa> <suffix_array> <mul_bg> <mur_bg>\n"
+        << "\nUsage:\nminUniqueKmer <genome_fa> <suffix_array> <mul_wig> <mur_wig>\n"
         << "Parameters:\n"
         << "<genome_fa>    - Genome multi-fasta sequence file\n"
         << "<suffix_array> - Suffix array produced from reverse-complimented genome\n"
-        << "<mul_bg>       - Output name for left-anchored minimum unique k-mer bedgraph\n"
-        << "<mur_bg>       - Output name for right-anchored minimum unique k-mer bedgraph\n";
+        << "<mul_wig>       - Output name for left-anchored minimum unique k-mer wiggle file\n"
+        << "<mur_wig>       - Output name for right-anchored minimum unique k-mer wiggle file\n";
 }
 
 bool help(int argc, char** argv)

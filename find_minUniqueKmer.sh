@@ -18,7 +18,7 @@ ref_untrimmed=$1
 refrev=$ref_untrimmed'.refrev'
 if [ ! -r refrev ]
 then
-  g++ $BINDIR/refRevComp.cpp -o $BINDIR/refRevComp
+  g++ $BINDIR/refRevComp.cpp -o $BINDIR/refRevComp --std=c++11
   $BINDIR/refRevComp $ref_untrimmed $refrev
 fi
 sa=$ref_untrimmed'.sa'
@@ -28,7 +28,7 @@ $BINDIR/libdivsufsort/build/examples/mksary $refrev $sa
 mul=$ref_untrimmed'.mul.bg'
 mur=$ref_untrimmed'.mur.bg'
 
-g++ $BINDIR/minUniqueKmer.cpp -o $BINDIR/minUniqueKmer
+g++ $BINDIR/minUniqueKmer.cpp -o $BINDIR/minUniqueKmer --std=c++11
 echo 'MUL: '$mul
 echo 'MUR: '$mur
 if [ ! -r $mul || -r $mur ]
