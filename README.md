@@ -2,14 +2,9 @@
   
 A method for creating minimum unique k-mer wiggle tracks from a set of fasta sequences, both left- and right-anchored.
   
-### Building:
+### Running minUniqueKmer:
 
-```
-cd src
-make
-```
-
-### Running minUinqueKmer: 
+The first time minUniqueKmer is run, the needed programs will be built if they do not currently exist.
 
 ```
 ./find_minUniqueKmer.sh <genome file (Fasta format)>
