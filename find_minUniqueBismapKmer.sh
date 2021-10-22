@@ -4,18 +4,18 @@ WORKINGDIR=`pwd`
 ref_untrimmed=$1
 echo 'BINDIR '$BINDIR
 
-refrev=$ref_untrimmed'.refrev'
-if [[ ! -x $BINDIR/refRevComp ]]
+refbis=$ref_untrimmed'.refbismap'
+if [[ ! -x $BINDIR/refBismap ]]
 then
-  g++ $BINDIR/refRevComp.cpp -o $BINDIR/refRevComp --std=c++11
+  g++ $BINDIR/refBismap.cpp -o $BINDIR/refBismap --std=c++11
 fi
 
-if [[ ! -r $refrev ]]
+if [[ ! -r $refbis ]]
 then
-  $BINDIR/refRevComp $ref_untrimmed $refrev
+  $BINDIR/refBismap $ref_untrimmed $refbis
 fi
 
-echo 'Reverse-complimented reference: ' $refrev
+echo 'Bisulfite-treated reference: ' $refbis
 if [[ ! -x $BINDIR/libdivsufsort/build/examples/mksary ]]
 then
 	cd $BINDIR
@@ -31,22 +31,21 @@ then
 fi
 
 sa=$ref_untrimmed'.sa'
-if [[ ! -r $sa || $sa -ot $refrev ]]
+if [[ ! -r $sa || $sa -ot $refbis ]]
 then
-	$BINDIR/libdivsufsort/build/examples/mksary $refrev $sa
+	$BINDIR/libdivsufsort/build/examples/mksary $refbis $sa
 fi
 
-mul=$ref_untrimmed'.mul.wig'
-mur=$ref_untrimmed'.mur.wig'
-lcp=$ref_untrimmed'.lcp'
-if [[ ! -x $BINDIR/minUniqueKmer.cpp ]]
+mul=$ref_untrimmed'.bis.mul.wig'
+mur=$ref_untrimmed'.bis.mur.wig'
+if [[ ! -x $BINDIR/minUniqueBismapKmer ]]
 then
-	g++ $BINDIR/minUniqueKmer.cpp -o $BINDIR/minUniqueKmer --std=c++11
+	g++ $BINDIR/minUniqueBismapKmer.cpp -o $BINDIR/minUniqueBismapKmer --std=c++11
 fi
 
 echo 'MUL: '$mul
 echo 'MUR: '$mur
 if [[ ! -r $mul || ! -r $mur || $mul -ot $sa || $mur -ot $sa ]]
 then
-  $BINDIR/minUniqueKmer $ref_untrimmed $sa $mul $mur $lcp
+  $BINDIR/minUniqueBismapKmer $ref_untrimmed $sa $mul $mur
 fi

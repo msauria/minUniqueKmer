@@ -1,3 +1,4 @@
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <fstream>
@@ -28,7 +29,7 @@ size_t find_LCP(size_t idx1, size_t idx2)
       {
         curr++;
       }
-  if (str[idx1 + curr] == Nchar)
+  if (idx1 + curr == size2 || idx2 + curr == size2 || str[idx1 + curr] == Nchar)
     return 0;
   return curr;
 }
@@ -191,8 +192,12 @@ int main(int argc, char *argv[])
   {
     if (str[i] == 'A') str[size2 - i - 1] = 'T';
     else if (str[i] == 'T') str[size2 - i - 1] = 'A';
-    else if (str[i] == 'C') str[size2 - i - 1] = 'G';
-    else if (str[i] == 'G') str[size2 - i - 1] = 'C';
+    else if (str[i] == 'C')
+    {
+        str[size2 - i - 1] = 'G';
+        str[i] = 'T';
+    }
+    else if (str[i] == 'G') str[size2 - i - 1] = 'T';
     else str[size2 - i - 1] = 'N';
   }
 
@@ -242,12 +247,9 @@ int main(int argc, char *argv[])
   outfile1.open (argv[5]);
   for (size_t i=0; i<N2chr; i++){
     if (i < Nchr) outfile1 << "chrom " + cnames[i] + "\n";
-    else outfile1 << "chrom_RC " + cnames[N2chr-i-1] + "\n";
+    else outfile1 << "chrom_RC " + cnames[i-Nchr] + "\n";
     for (size_t j=cindices[i]; j<cindices[i+1]; j++){
-      if (inv[j] < size2 - 1)
-        outfile1 << to_string(lcp[inv[j]]) + "\t" << to_string(lcp[inv[j]+1]) << "\n";
-      else
-        outfile1 << to_string(lcp[inv[j]]) + "\tX\n";
+      outfile1 << to_string(lcp[inv[j]]) + "\n";
     }
   }
   outfile1.close();
@@ -328,14 +330,14 @@ int main(int argc, char *argv[])
   for (size_t i=0; i<Nchr; i++)
   {
     prev = false;
-    for (size_t j=cindices[i]; j<cindices[i+1]; j++)
+    for (size_t j=cindices[N2chr-i]-1; j>=cindices[N2chr-i-1]; j--)
     {
-      if (mu[size2 - j - 1] == 0) prev = false;
+      if (mu[j] == 0) prev = false;
       else
       {
         if (!prev) outfile << "fixedStep chrom=" + cnames[i] + " start=" +
-                              to_string(j - cindices[i] + 1) + " step=1\n";
-        outfile << to_string(mu[size2 - j - 1]) + "\n";
+                              to_string(cindices[N2chr-i] - j) + " step=1\n";
+        outfile << to_string(mu[j]) + "\n";
         prev = true;
       }
     }

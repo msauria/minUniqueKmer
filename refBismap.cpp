@@ -8,11 +8,11 @@ using namespace std;
 
 void print_info(void)
 {
-  std::cout << "Create concatenated reverse-complimented genome character file ver. 1.0\n"
-        << "\nUsage:\nrefRevComp <genome_fa> <revcomp_ref>\n"
+  std::cout << "Create concatenated bisulfite-treated genome character file ver. 1.0\n"
+        << "\nUsage:\nrefBismap <genome_fa> <bismap_ref>\n"
         << "Parameters:\n"
         << "<genome_fa>   - Genome multi-fasta sequence file\n"
-        << "<revcomp_ref> - Output file for reverse-complimented genome\n";
+        << "<bismap_ref>  - Output file for bisulfite-treated genome\n";
 }
 
 bool help(int argc, char** argv)
@@ -71,7 +71,7 @@ int main(int argc, char **argv)
         else
         {
           if(reference[n-i-1] == 'G')
-            out2 << 'C';
+            out2 << 'T';
           else
             out2 << 'N';
         }
@@ -80,8 +80,11 @@ int main(int argc, char **argv)
   }
   string reference2 = out2.str();
 
-  cout << n << endl;
-  cout << reference.length() << " " << reference2.length() << "\n";
+    for(size_t i=0; i < n; i++)
+    {
+        if(reference[i] == 'C')
+            reference[i] = 'T';
+    }
 
   FILE *refoutfile = fopen (argv[2], "wb");
   fwrite(&reference[0], sizeof(char), n, refoutfile);
