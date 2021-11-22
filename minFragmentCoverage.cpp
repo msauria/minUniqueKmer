@@ -14,7 +14,7 @@ vector<std::string> cnames;
 void print_info(void)
 {
   std::cout << "Find minimum unique fragment size covering each genomic position ver. 1.0\n"
-        << "\nUsage:\nminFragmentCoverage <mul_wig> <mur_wig>\n"
+        << "\nUsage:\nminFragmentCoverage <chrom_sz> <mul_wig> <mur_wig> <out_wig>\n"
         << "Parameters:\n"
         << "<chrom_sz>      - Two-column tab-separated chromosome size file\n"
         << "<mul_wig>       - Left-anchored minimum unique k-mer wiggle file\n"
@@ -59,7 +59,7 @@ void load_wiggle(char* fname, std::vector<size_t>* wig, bool forward)
       }
       size_t index;
       for (index=0; index<Nchr; index++)
-        if (cnames[index].compare(chrom) == 0)
+        if (cnames[index].compare(chrom) == 0 && cnames[index].length() == chrom.length())
           break;
       cstart = cindices[index];
       pos += cstart;

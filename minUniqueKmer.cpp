@@ -19,9 +19,8 @@ std::ifstream::pos_type filesize(const char* filename)
     return in.tellg(); 
 }
 
-size_t find_LCP(size_t idx1, size_t idx2)
+size_t find_LCP(size_t idx1, size_t idx2, size_t curr)
 {
-  size_t curr=0;
   while (idx1 + curr < size2 && idx2 + curr < size2 \
          && str[idx1 + curr] == str[idx2 + curr] \
          && str[idx1 + curr] != Nchar)
@@ -67,8 +66,9 @@ void fill_LCP()
         fprintf(stderr, "\rLCP %luM of %luM", i/1000000, size2/1000000);
         fflush(stderr);
       }
-      curr = find_LCP(i, j);
+      curr = find_LCP(i, j, curr);
       lcp[k] = curr;
+      if (curr > 0) curr--;
     }
   }
   fprintf(stderr, "\r                                     \r");
@@ -87,11 +87,12 @@ size_t resolve_chrom_runoff(size_t seq_idx)
 {
   //fprintf(stderr, "%lu %lu\n", chr_idx, seq_idx);
   size_t sa_idx=inv[seq_idx], sa_idx1=sa_idx-2, best_lcp=0;
-  size_t seq_idx1, chr;
+  size_t seq_idx1, chr, curr;
   while (sa_idx1 > 0)
   {
     seq_idx1 = idx[sa_idx1];
-    best_lcp = find_LCP(seq_idx, seq_idx1);
+    curr = 0;
+    best_lcp = find_LCP(seq_idx, seq_idx1, curr);
     chr = find_chrom(seq_idx1, 0, N2chr);
     if (seq_idx1 + best_lcp < cindices[chr + 1])
         break;
