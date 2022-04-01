@@ -5,3 +5,6 @@
 	path = libdivsufsort
 	url = https://github.com/mkirsche/libdivsufsort.git
 	branch = sapling
+[submodule "CTPL"]
+	path = CTPL
+	url = https://www.github.com/vit-vit/CTPL

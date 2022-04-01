@@ -4,24 +4,26 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <ctpl_stl.h>
+#include <thread>
 
 using namespace std;
 
-size_t Nchr=0;
-vector<size_t> cindices;
-vector<uint8_t> mul, mur;
-vector<std::string> cnames;
+int32_t kmer_len, threadN;
+vector<int32_t> mul;
+std::vector<std::string> wigout;
+ifstream wigfile;
 
 void print_info(void)
 {
   std::cout << "Find mean unique k-mer coverage for a given k-mer size at each genomic position ver. 1.0\n"
-        << "\nUsage:\nmeanKmerCoverage <k-mer> <chrom_sz> <mul_wig> <mur_wig> <out_wig>\n"
+        << "\nUsage:\nmeanKmerCoverage [options] <k-mer> <mapping_wig>\n"
         << "Parameters:\n"
-        << "<k-mer>         - Maximum unique k-mer size\n"
-        << "<chrom_sz>      - Two-column tab-separated chromosome size file\n"
-        << "<mul_wig>       - Left-anchored minimum unique k-mer wiggle file\n"
-        << "<mur_wig>       - Right-anchored minimum unique k-mer wiggle file\n"
-        << "<out_wig>       - Output mean k-mer coverage wiggle file\n";
+        << "<k-mer>     - k-mer size\n"
+        << "<mul_wig>   - Minimum unique k-mer length (left-anchored) wiggle file\n"
+        << "Options:\n"
+        << "-t<value>   - Number of additional threads to use\n";
 }
 
 bool help(int argc, char** argv)
@@ -35,137 +37,185 @@ bool help(int argc, char** argv)
   return false;
 }
 
-void load_wiggle(char* fname, uint8_t kmer, std::vector<uint8_t>* wig, bool forward)
+bool load_wiggle_chrom(string &chrom, int32_t &end)
 {
-  ifstream input(fname);
-  string cur, field, chrom;
-  size_t cstart, pos, split, val;
-  while (getline(input, cur))
+  string cur, cur0, field, new_chrom="";
+  int32_t pos=0, split, bufsize, start, counter=1000000;
+  mul.clear();
+  while (getline(wigfile, cur))
   {
-    if (cur.find("f") == 0)
+    if (cur[0] == 'f')
     {
-      while (cur.length() > 0)
+      end = pos;
+      cur0 = cur;
+      bufsize = cur0.size() + 1;
+      while (cur0.length() > 0)
       {
-        split = cur.find(" ");
+        split = cur0.find(" ");
         if (split == std::string::npos)
-          split = cur.length();
-        field = cur.substr(0, split);
+          split = cur0.length();
+        field = cur0.substr(0, split);
         if (split == cur.length())
-          cur.erase(0, split);
+          cur0.erase(0, split);
         else
-          cur.erase(0, split + 1);
+          cur0.erase(0, split + 1);
         if (field.find("chrom") == 0)
-          chrom = field.substr(field.find("=") + 1, field.length());
+        {
+          new_chrom = field.substr(field.find("=") + 1, field.length());
+          if (chrom == "") chrom = new_chrom;
+        }
         else if (field.find("start") == 0)
-          pos = stoi(field.substr(field.find("=") + 1, field.length())) - 1;
+        {
+          start = stoi(field.substr(field.find("=") + 1, field.length())) - 1;
+          if (start > pos)
+            for (int32_t i=pos; i<start;i++) mul.push_back(0);
+          pos = start;
+        }
       }
-      size_t index;
-      for (index=0; index<Nchr; index++)
-        if (cnames[index].compare(chrom) == 0)
-          break;
-      cstart = cindices[index];
-      pos += cstart;
-    } else {
-      val = stoi(cur);
-      if (val <= kmer)
+      if (new_chrom != chrom)
       {
-        if (forward)
-          for (size_t i=0; i<kmer; i++)
-            (*wig)[pos+i]++;
-        else
-          for (size_t i=0; i<kmer; i++)
-            (*wig)[pos-i]++;
+        wigfile.seekg(-bufsize, ios_base::cur);
+        break;
       }
+    } else {
+      mul.push_back(stoi(cur));
       pos++;
+      if (pos >= counter)
+      {
+        fprintf(stderr, "\rRead %iMbp of %s", counter / 1000000, chrom.c_str());
+        fflush(stderr);
+        counter += 1000000;
+      }
     }
   }
-  input.close();
+  fprintf(stderr, "\r                               \r");
+  fflush(stderr);
+  if (new_chrom == "")
+    return false;
+  else
+    return true;
 }
 
 std::string rtrim(const std::string &s)
 {
-    size_t end = s.find_last_not_of("0");
+    int32_t end = s.find_last_not_of("0");
     return (end == std::string::npos) ? "" : s.substr(0, end + 1);
+}
+
+void find_coverage(const uint id, const string chrom, const int32_t index,
+  const int32_t maxlen)
+{
+  int32_t start=index*1000000, end=(index+1)*1000000;
+  end = std::min(end, maxlen);
+  int32_t count=0, upos=start-kmer_len;
+  bool header=true;
+  float fkmer_len = kmer_len;
+  std::string outline="", val; 
+  for (int32_t i=std::max(0, upos); i<start; i++)
+    if ((mul[i] > 0) & (mul[i] <= kmer_len)) count++;
+  for (int32_t i=start; i<end; i++)
+  {
+    if (upos >= 0)
+      if ((mul[upos] > 0) & (mul[upos] <= kmer_len)) count -= 1;
+    if ((mul[i] > 0) & (mul[i] <= kmer_len)) count += 1;
+    if (count == 0) header = true;
+    else
+    {
+      if (header)
+      {
+        outline += "fixedStep chrom=";
+        outline += chrom;
+        outline += " start=";
+        outline += std::to_string(i + 1);
+        outline += " step=1\n";
+        header = false;
+      }
+      val = std::to_string(count / fkmer_len);
+      val = rtrim(val);
+      outline += val;
+      outline += "\n";
+    }
+    upos++;
+  }
+  if (outline.length() == 0) outline += "x";
+  wigout[index] = outline;
 }
 
 int main(int argc, char *argv[])
 {
   fprintf(stderr, "\r                                     \r");
   fflush(stderr);
-  if (argc <= 5 || help(argc, argv))
+  if (argc <= 2 || help(argc, argv))
   {
     print_info();
     return 1;
   }
 
-  uint8_t Kmer = stoi(argv[1]);
-  float Kmer2=Kmer*2;
-
-  // Load chromosome sizes
-  ifstream input(argv[2]);
-  cindices.resize(0);
-  cnames.resize(0);
-  string cur;
-  size_t pos=0;
-  cindices.push_back(pos);
-  fprintf(stderr, "\rReading chromosome sizes ");
-  fflush(stderr);
-  while (getline(input, cur))
-  {
-    size_t name_stop = cur.find("\t");
-    pos += std::stoi(cur.substr(name_stop + 1));
-    Nchr += 1;
-    cnames.push_back(cur.substr(0, name_stop));
-    cindices.push_back(pos);
-  }
-  input.close();
-
-  // Load wiggle files
-  fprintf(stderr, "\r                         \r");
-  fprintf(stderr, "\rAllocating MUL array ");
-  fflush(stderr);
-  mul.resize(cindices[Nchr]);
-  fprintf(stderr, "\r                         \r");
-  fprintf(stderr, "\rLoading MUL array ");
-  fflush(stderr);
-  load_wiggle(argv[3], Kmer, &mul, true);
-  fprintf(stderr, "\r                         \r");
-  fprintf(stderr, "\rAllocating MUR array ");
-  fflush(stderr);
-  mur.resize(cindices[Nchr]);
-  fprintf(stderr, "\r                         \r");
-  fprintf(stderr, "\rLoading MUR array ");
-  fflush(stderr);
-  load_wiggle(argv[4], Kmer, &mur, false);
-
-  // Write minimum unique fragment wiggle
-  fprintf(stderr, "\r                         \r");
-  fprintf(stderr, "\rWriting output ");
-  fflush(stderr);
-  ofstream outfile;
-  outfile.open (argv[5]);
-  bool prev;
-  std::string val;
-  for (size_t i=0; i<Nchr; i++)
-  {
-    prev = false;
-    for (size_t j=cindices[i]; j<cindices[i+1]; j++)
+  int32_t apos;
+  threadN = 1;
+  for(apos = 1; apos < argc; ++apos)
+    if(argv[apos][0] == '-')
     {
-      if (mul[j] == 0 && mur[j] == 0)
-      {
-        prev = false;
-        continue;
-      }
-      val = to_string((mur[j] + mul[j]) / Kmer2);
-      val = rtrim(val);
-      if (!prev) outfile << "fixedStep chrom=" + cnames[i] + " start=" +
-                            to_string(j - cindices[i] + 1) + " step=1\n";
-      outfile << val + "\n";
-      prev = true;
-    }
+      if (std::strncmp(argv[apos], "-t", 2) == 0)
+        threadN = atoi(&argv[apos][2]);
+    } else
+      break;
+
+  if(argc - apos < 2)
+  { 
+    print_info();
+    return 0;
   }
-  outfile.close();
-  fprintf(stderr, "\r                         \r");
-  fflush(stderr);
+
+  kmer_len = stoi(argv[apos++]);
+  // Create thread pool
+  threadN = std::min(std::thread::hardware_concurrency(), \
+                     static_cast<unsigned>(threadN));
+  ctpl::thread_pool pool(threadN);
+
+  // Begin loading wiggle and submitting jobs
+  wigfile.open(argv[apos]);
+  string chrom="";
+  int32_t chrom_end;
+  while (load_wiggle_chrom(chrom, chrom_end))
+  {
+    // Submit jobs
+    int32_t num_jobs = (chrom_end - 1) / 1000000 + 1;
+    wigout.clear();
+    for (int32_t j=0; j<num_jobs; j++)
+    {
+      wigout.push_back("");
+      pool.push(find_coverage, chrom, j, chrom_end);
+    }
+    // Wait for jobs to finish
+    time_t current_time, new_time;
+    time(&current_time);
+    int32_t outpos=0;
+    current_time -= 1;
+    while (outpos < num_jobs)
+    {
+      if (wigout[outpos].length() > 0)
+      {
+        if (wigout[outpos] != "x")
+        {
+          fputs(wigout[outpos].c_str(), stdout);
+          fflush(stdout);
+        }
+        wigout[outpos] = "";
+        outpos ++;
+      }
+      time(&new_time);
+      if (new_time != current_time)
+      {
+        std::cerr << "\rScoring " << chrom << " job " << outpos
+                  << " of " << num_jobs;
+        current_time = new_time;
+      }
+    }
+    chrom = "";
+    std::cerr << "\r                                     \r";
+  }
+  wigfile.close();
+
   return EXIT_SUCCESS;
 }

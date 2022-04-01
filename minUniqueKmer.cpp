@@ -1,22 +1,121 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctpl_stl.h>
+#include <algorithm>
+#include <thread>
+#include <mutex>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <cstring>
 #include <vector>
+#include <ctime>
 
 using namespace std;
 
-size_t size, size2, cindex, N2chr;
+size_t size, size2, cindex, N2chr, threadN;
 vector<size_t> inv, idx, mu, cindices, lcp;
 vector<char> str;
 vector<std::string> cnames;
+size_t finished;
+std::mutex finished_mutex;
+std::mutex lcp_mutex;
 const char Nchar='N';
+
+void print_info(void)
+{
+  std::cout << "Find minimum unique k-mer bedgraphs ver. 1.0\n"
+        << "\nUsage:\nminUniqueKmer [options] <genome_fa> <suffix_array>\n"
+        << "Parameters:\n"
+        << "<genome_fa>    - Genome multi-fasta sequence file\n"
+        << "<suffix_array> - Suffix array produced from reverse-complimented genome\n"
+        << "Options:\n"
+        << "-b             - Find minimum unique k-mer lengths for a bisulfite-converted genome\n"
+        << "-p<value>      - Output prefix for the minimum unique k-mer wiggle files\n"
+        << "-t<value>      - Number of threads for concurrent processing\n";
+}
 
 std::ifstream::pos_type filesize(const char* filename)
 {
     std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
     return in.tellg(); 
+}
+
+void read_fasta(const std::string& fname)
+{
+  ifstream input(fname);
+  cindices.resize(0);
+  cnames.resize(0);
+  string cur;
+  size_t pos=0, cend;
+  std::string chrom;
+  time_t current_time, new_time;
+  current_time -= 1;
+  str.resize(size2);
+  fprintf(stderr, "Reading reference file\n");
+  fflush(stderr);
+  while (getline(input, cur))
+  {
+    if(cur[0] == '>')
+    {
+      cend = 2;
+      while ((cend < cur.length()) & (cur[cend] != ' ')) cend++;
+      chrom = cur.substr(1, cend - 1);
+      cnames.push_back(chrom);
+      cindices.push_back(pos);
+      time(&new_time);
+      if (current_time != new_time)
+      {
+        std::cerr << "\r                                         \r";
+        std::cerr << "\rLoading " << chrom << " sequence";
+        current_time = new_time;
+      }
+    }
+    else
+    {
+      std::transform(cur.begin(), cur.end(), cur.begin(), ::toupper);
+      std:strcpy(&str[pos], cur.c_str());
+      pos += cur.length();
+    }
+  }
+  cindices.push_back(pos);
+  std::cerr << "\r                                         \r";
+}
+
+void reverse_compliment(int id, size_t index)
+{
+  size_t start=index*1000000, end=start+1000000;
+  end = std::min(end, size);
+  for (size_t i=start; i<end; i++)
+  {
+    if (str[i] == 'A') str[size2 - i - 1] = 'T';
+    else if (str[i] == 'T') str[size2 - i - 1] = 'A';
+    else if (str[i] == 'C') str[size2 - i - 1] = 'G';
+    else if (str[i] == 'G') str[size2 - i - 1] = 'C';
+    else str[size2 - i - 1] = 'N';
+  }
+  const std::lock_guard<std::mutex> lock(finished_mutex);
+  finished++;
+}
+
+void reverse_compliment_bs(int id, size_t index)
+{
+  size_t start=index*1000000, end=start+1000000;
+  end = std::min(end, size);
+  for (size_t i=start; i<end; i++)
+  {
+    if (str[i] == 'A') str[size2 - i - 1] = 'T';
+    else if (str[i] == 'T') str[size2 - i - 1] = 'A';
+    else if (str[i] == 'C')
+    {
+        str[size2 - i - 1] = 'G';
+        str[i] = 'T';
+    }
+    else if (str[i] == 'G') str[size2 - i - 1] = 'T';
+    else str[size2 - i - 1] = 'N';
+  }
+  const std::lock_guard<std::mutex> lock(finished_mutex);
+  finished++;
 }
 
 size_t find_LCP(size_t idx1, size_t idx2, size_t curr)
@@ -32,86 +131,73 @@ size_t find_LCP(size_t idx1, size_t idx2, size_t curr)
   return curr;
 }
 
-void fill_LCP() 
+void fill_LCP(int id, size_t index) 
 {
-  fprintf(stderr, "Inverting suffix array\n");
-  fflush(stderr);
-  inv.resize(size2);
-  for(size_t i=0; i<size2; i++)
-  {
-    if (i % 1000000 == 0)
-    {
-      fprintf(stderr, "\rInv SA %luM of %luM", i/1000000, size2/1000000);
-      fflush(stderr);
-    }
-    inv[idx[i]] = i;
-    // inv = ref[i] -> sa
-    // idx = sa[i] -> ref
-  }
-
-  fprintf(stderr, "\r                                     \r");
-  fprintf(stderr, "Calculating LCP\n");
-  fflush(stderr);
-  lcp.resize(size2);
-  fill(lcp.begin(), lcp.end(), 0);
+  size_t start=index*1000000, end=start+1000000;
+  end = std::min(end, size2);
   size_t curr=0;
-  for (size_t i=0; i<size2; i++) 
+  for (size_t i=start; i<end; i++) 
   {
     size_t k = inv[i];
     if (k > 0)
     {
       size_t j = idx[k - 1];
-      if (i % 1000000 == 0)
-      {
-        fprintf(stderr, "\rLCP %luM of %luM", i/1000000, size2/1000000);
-        fflush(stderr);
-      }
       curr = find_LCP(i, j, curr);
       lcp[k] = curr;
       if (curr > 0) curr--;
     }
   }
-  fprintf(stderr, "\r                                     \r");
-  fflush(stderr);
+  const std::lock_guard<std::mutex> lock(finished_mutex);
+  finished++;
 }
 
-size_t find_chrom(size_t seq_idx, size_t start, size_t end)
+void invert_sa(int id, size_t index)
 {
-  if (end - start == 1) return start;
-  size_t mid = (end + start) / 2;
-  if (seq_idx >= cindices[mid]) return find_chrom(seq_idx, mid, end);
-  else return find_chrom(seq_idx, start, mid);
-}
-
-size_t resolve_chrom_runoff(size_t seq_idx)
-{
-  //fprintf(stderr, "%lu %lu\n", chr_idx, seq_idx);
-  size_t sa_idx=inv[seq_idx], sa_idx1=sa_idx-2, best_lcp=0;
-  size_t seq_idx1, chr, curr;
-  while (sa_idx1 > 0)
+  size_t start=index*1000000, end=start+1000000;
+  end = std::min(end, size2);
+  size_t length=end-start;
+  for(size_t i=start; i<end; i++)
   {
-    seq_idx1 = idx[sa_idx1];
-    curr = 0;
-    best_lcp = find_LCP(seq_idx, seq_idx1, curr);
-    chr = find_chrom(seq_idx1, 0, N2chr);
-    if (seq_idx1 + best_lcp < cindices[chr + 1])
-        break;
-    else
-      sa_idx1--;
+    inv[idx[i]] = i;
+    // inv = ref[i] -> sa
+    // idx = sa[i] -> ref
   }
-  if (sa_idx1 == 0) return 0;
-  return best_lcp;
+  const std::lock_guard<std::mutex> lock(finished_mutex);
+  finished++;
 }
 
-void print_info(void)
+void trim_LCP(int id, size_t sa_idx1)
 {
-  std::cout << "Find minimum unique k-mer bedgraphs ver. 1.0\n"
-        << "\nUsage:\nminUniqueKmer <genome_fa> <suffix_array> <mul_wig> <mur_wig>\n"
-        << "Parameters:\n"
-        << "<genome_fa>    - Genome multi-fasta sequence file\n"
-        << "<suffix_array> - Suffix array produced from reverse-complimented genome\n"
-        << "<mul_wig>       - Output name for left-anchored minimum unique k-mer wiggle file\n"
-        << "<mur_wig>       - Output name for right-anchored minimum unique k-mer wiggle file\n";
+  size_t sa_idx0, seq_idx0, seq_idx1, new_lcp;
+  sa_idx0 = sa_idx1 - 2;
+  seq_idx1 = idx[sa_idx1];
+  while ((sa_idx0 > 0) & (lcp[sa_idx0] == 0)) sa_idx0--;
+  if (lcp[sa_idx0] == 0) return;
+  seq_idx0 = idx[sa_idx0];
+  new_lcp = find_LCP(seq_idx0, seq_idx1, 0);
+  lcp[sa_idx1] = new_lcp;
+  const std::lock_guard<std::mutex> lock1(finished_mutex);
+  finished++;
+}
+
+void find_mu(int id, size_t index)
+{
+  size_t start=index*1000000, end=start+1000000;
+  end = std::min(end, size2 - 1);
+  size_t seq_idx;
+  for (size_t i=start; i<end; i++)
+  {
+    seq_idx = idx[i];
+    inv[seq_idx] = 1 + max(lcp[i], lcp[i + 1]);
+    if (inv[seq_idx] == 1) inv[seq_idx] = 0;
+  }
+  if (index == 0)
+  {
+    inv[idx[size2-1]] = lcp[size2-1] + 1;
+    if (inv[idx[size2-1]] == 1) inv[idx[size2-1]] = 0;
+  }
+  const std::lock_guard<std::mutex> lock(finished_mutex);
+  finished++;
 }
 
 bool help(int argc, char** argv)
@@ -129,55 +215,67 @@ int main(int argc, char *argv[])
 {
   fprintf(stderr, "\r                                     \r");
   fflush(stderr);
-  if (argc <= 4 || help(argc, argv))
+
+    //------------------------------------------------------------
+  // Parse input parameters
+  //------------------------------------------------------------
+  bool bisulfite=false;
+  threadN = 1;
+  std::string prefix="";
+  if(argc < 2)
   {
     print_info();
-    return 1;
+    return 0;
   }
 
-  // Get total genome size
-  FILE* fp = fopen(argv[2], "rb");
-  size2 = filesize(argv[2]) / sizeof(size_t);
-  size = size2 / 2;
-  cout << size << " " << size2 << endl;
-
-  // Load chromosome sequences and sizes
-  ifstream input(argv[1]);
-  cindices.resize(0);
-  cnames.resize(0);
-  string cur;
-  size_t pos=0;
-  str.resize(size2);
-  fprintf(stderr, "Reading reference file\n");
-  fflush(stderr);
-  while (getline(input, cur))
-  {
-    if(cur[0] == '>')
+  int32_t apos;
+  for(apos = 1; apos < argc; ++apos)
+    if(argv[apos][0] == '-')
     {
-      cnames.push_back(cur.substr(1));
-      cindices.push_back(pos);
+      if(std::strncmp(argv[apos], "-p", 2) == 0)
+        prefix = &argv[apos][2];
+      else if (std::strncmp(argv[apos], "-t", 2) == 0)
+        threadN = atoi(&argv[apos][2]);
+      else if (std::strncmp(argv[apos], "-b", 2) == 0)
+        bisulfite = true;
     }
     else
-    {
-      for(size_t i = 0; i<cur.length(); i++)
-      {
-        if(cur[i] >= 'a' && cur[i] <= 'z') cur[i] += 'A' - 'a';
-        if(cur[i] >= 'A' && cur[i] <= 'Z')
-        {
-          str[pos] = cur[i];
-          pos++;
-        }
-      }
-    }
+      break;
+
+  if(argc - apos < 2)
+  { 
+    print_info();
+    return 0;
   }
-  cindices.push_back(pos);
-  if(pos != size)
+
+  std::string fasta_fname="", sa_fname="", mul_fname="", mur_fname="";
+  fasta_fname.assign(argv[apos++]);
+  sa_fname.assign(argv[apos]);
+  if (prefix == "")
+    prefix.assign(fasta_fname);
+  mul_fname.assign(prefix + ".mul.wig");
+  mur_fname.assign(prefix + ".mur.wig");
+
+  threadN = std::min(std::thread::hardware_concurrency(), \
+                       static_cast<unsigned>(threadN));
+  ctpl::thread_pool pool(threadN);
+
+  // Get total genome size
+  FILE* fp = std::fopen(sa_fname.c_str(), "rb");
+  size2 = filesize(sa_fname.c_str()) / sizeof(size_t);
+  size = size2 / 2;
+
+  // Load chromosome sequences and sizes
+  read_fasta(fasta_fname);
+  size_t Nchr = cindices.size() - 1;
+  if(cindices[Nchr] != size)
   {
-    fprintf(stderr, "Reference and SA don't match lengths (%lu %lu %lu)\n", pos, size, sizeof(size_t));
+    fprintf(stderr, "Reference and SA don't match lengths\n");
     perror(NULL);
     exit(EXIT_FAILURE);
   }
-  size_t Nchr = cindices.size() - 1;
+
+  // Add reverse-compliments to chromosome indices
   N2chr = Nchr * 2;
   for (size_t i=Nchr; i<N2chr; i++){
     cindices.push_back(cindices[i]
@@ -188,14 +286,24 @@ int main(int argc, char *argv[])
   // Add reverse-complimented sequence
   fprintf(stderr, "Reverse complimenting reference\n");
   fflush(stderr);
-  for (size_t i=0; i<size; i++)
-  {
-    if (str[i] == 'A') str[size2 - i - 1] = 'T';
-    else if (str[i] == 'T') str[size2 - i - 1] = 'A';
-    else if (str[i] == 'C') str[size2 - i - 1] = 'G';
-    else if (str[i] == 'G') str[size2 - i - 1] = 'C';
-    else str[size2 - i - 1] = 'N';
+  finished = 0;
+  size_t jobN = (size - 1) / 1000000 + 1;
+  fprintf(stderr, "\rRevcomp 0M of %luM", jobN);
+  fflush(stderr);
+  for (size_t i=0; i<jobN; i++) {
+    if (bisulfite)
+      pool.push(reverse_compliment_bs, i);
+    else
+      pool.push(reverse_compliment, i);
   }
+  while (finished < jobN)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    fprintf(stderr, "\rRevcomp %luM of %luM", finished, jobN);
+    fflush(stderr);
+  }
+  fprintf(stderr, "\r                                  \r");
+  fflush(stderr);
 
   // Load suffix array
   fprintf(stderr, "Loading suffix array\n");
@@ -204,74 +312,137 @@ int main(int argc, char *argv[])
   fread(&idx[0], sizeof(size_t), size2, fp);
   fclose(fp);
 
+  // Inverting suffix array
+  fprintf(stderr, "Inverting suffix array\n");
+  fflush(stderr);
+  inv.resize(size2);
+  jobN = (size2 - 1) / 1000000 + 1;
+  finished = 0;
+  for (size_t i=0; i<jobN; i++)
+  {
+    pool.push(invert_sa, i);
+  }
+  fprintf(stderr, "\rInv SA 0M of %luM", jobN);
+  fflush(stderr);
+  while (finished < jobN)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    fprintf(stderr, "\rInv SA %luM of %luM", finished, jobN);
+    fflush(stderr);
+  }
+  fprintf(stderr, "\r                                  \r");
+
   // Find LCP
-  fill_LCP();
+  fprintf(stderr, "\r                                     \r");
+  fprintf(stderr, "Calculating LCP\n");
+  fflush(stderr);
+  lcp.resize(size2);
+  fill(lcp.begin(), lcp.end(), 0);
+  jobN = (size2 - 1) / 1000000 + 1;
+  for (size_t i=0; i<jobN; i++)
+  {
+    pool.push(fill_LCP, i);
+  }
+  finished=0;
+  fprintf(stderr, "\rLCP 0M of %luM", jobN);
+  fflush(stderr);
+  while (finished < jobN)
+  {
+    fprintf(stderr, "\rLCP %luM of %luM", finished, jobN);
+    fflush(stderr);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
+  fprintf(stderr, "\r                                     \r");
+  fflush(stderr);
 
   // Trim LCPs
   fprintf(stderr, "Trimming LCPs\n");
   fflush(stderr);
-  vector<size_t> trim, resolve; 
-  trim.resize(0);
-  resolve.resize(0);
   // Identify chromosome end LCP overlaps
   for (size_t i=0; i<N2chr; i++)
   {
+    fprintf(stderr, "\r                                     \r");
+    if (i < Nchr)
+      fprintf(stderr, "\rTrimming %s", cnames[i].c_str());
+    else
+      fprintf(stderr, "\rTrimming rev-%s", cnames[N2chr - 1 - i].c_str());
+    fflush(stderr);
     size_t inv_j;
-    size_t cstart=cindices[i], cend=cindices[i+1], j;
-    j = cend - 1;
+    size_t cstart=cindices[i], cend=cindices[i+1], j=cend-1;
     while (true)
     {
-      if (j == cstart) break;
+      if (j == cstart) break; // Reached start of chromosome
       inv_j = inv[j];
-      if (lcp[inv_j] + j <= cend) break;
-      trim.push_back(j);
-      inv_j++;
-      if (inv_j < size2)
-        resolve.push_back(idx[inv_j]);
+      // If lcp fits on chromosome, then finished trimming
+      if (lcp[inv_j] + j + 1 < cend) break;
+      lcp[inv_j] = 0;
       j--;
     }
   }
-
-  // Resolve chromosome end LCP overlap-adjacent suffices
-  for (size_t j=0; j<resolve.size(); j++)
-    lcp[inv[resolve[j]]] = resolve_chrom_runoff(resolve[j]);
-  // Trim chromosome end LCP overlaps
-  for (size_t j=0; j<trim.size(); j++)
-    lcp[inv[trim[j]]] = 0;
-
-  ofstream outfile1;
-  outfile1.open (argv[5]);
-  for (size_t i=0; i<N2chr; i++){
-    if (i < Nchr) outfile1 << "chrom " + cnames[i] + "\n";
-    else outfile1 << "chrom_RC " + cnames[N2chr-i-1] + "\n";
-    for (size_t j=cindices[i]; j<cindices[i+1]; j++){
-      if (inv[j] < size2 - 1)
-        outfile1 << to_string(lcp[inv[j]]) + "\t" << to_string(lcp[inv[j]+1]) << "\n";
-      else
-        outfile1 << to_string(lcp[inv[j]]) + "\tX\n";
+  fprintf(stderr, "\r                                     \r");
+  fprintf(stderr, "Fixing adjacent LCPs\n");
+  fflush(stderr);
+  finished = 0;
+  size_t changed=0;
+  time_t current_time, new_time;
+  current_time -= 1;
+  for (size_t i=0; i<N2chr; i++)
+  {
+    size_t inv_j;
+    size_t cstart=cindices[i], cend=cindices[i+1], j=cend-1;
+    while (true)
+    {
+      if (j == cstart) break; // Reached start of chromosome
+      inv_j = inv[j];
+      // If lcp fits on chromosome, then finished trimming
+      if (lcp[inv_j] + j + 1 < cend) break;
+      if ((lcp[inv_j] == 0) & (inv_j + 1 < size2) & (lcp[inv_j + 1] > 0))
+      {
+        // Trim chromosome end LCP overlaps
+        pool.push(trim_LCP, inv_j + 1);
+        time(&new_time);
+        if (current_time != new_time)
+        {
+          fprintf(stderr, "\rFixing adjacent LCP %lu of %lu", \
+                  finished, changed);
+          fflush(stderr);
+          current_time = new_time;
+        }
+        changed++;
+      }
+      j--;
     }
   }
-  outfile1.close();
+  while (finished < changed)
+  {
+    fprintf(stderr, "\rFixing adjacent LCP %lu of %lu", \
+            finished, changed);
+    fflush(stderr);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
+  fprintf(stderr, "\r                                                 \r");
+  fflush(stderr);
 
   // Find minimum unique kmer length
-  mu.resize(size2);
-  size_t seq_idx;
+  fill(inv.begin(), inv.end(), 0); // Reusing inv for memory savings
   fprintf(stderr, "Calculating MUL and MUR\n");
   fflush(stderr);
-  for (size_t i=0; i<size2-1; i++)
+  finished=0;
+  jobN = (size2 - 1) / 1000000 + 1;
+  for (size_t i=0; i<jobN; i++)
   {
-    if (i % 1000000 == 0)
-    {
-      fprintf(stderr, "\rMinUnique %luM of %luM", i/1000000, size2/1000000);
-      fflush(stderr);
-    }
-    seq_idx = idx[i];
-    mu[seq_idx] = 1 + max(lcp[i], lcp[i + 1]);
-    if (mu[seq_idx] == 1) mu[seq_idx] = 0;
+    pool.push(find_mu, i);
   }
-  mu[idx[size2-1]] = lcp[size2-1] + 1;
-  if (mu[idx[size2-1]] == 1) mu[idx[size2-1]] = 0;
-  fprintf(stderr, "\r                                     \r");
+  fprintf(stderr, "\rMU 0M of %luM", jobN);
+  fflush(stderr);
+  while (finished < jobN)
+  {
+    fprintf(stderr, "\rMU %luM of %luM", finished, jobN);
+    fflush(stderr);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
+  fprintf(stderr, "\r                                                 \r");
+  fflush(stderr);
 
   // Trim MUs
   fprintf(stderr, "Trimming MUs\n");
@@ -279,43 +450,60 @@ int main(int argc, char *argv[])
   // Identify chromosome end MU overlaps
   for (size_t i=0; i<N2chr-1; i++)
   {
+    fprintf(stderr, "\r                                     \r");
+    if (i < Nchr)
+      fprintf(stderr, "\rTrimming %s", cnames[i].c_str());
+    else
+      fprintf(stderr, "\rTrimming rev-%s", cnames[N2chr - 1 - i].c_str());
+    fflush(stderr);
     size_t cstart=cindices[i], cend=cindices[i+1], j;
     j = cend - 1;
     while (true)
     {
-      if (j == cstart) break;
-      if (mu[j] + j <= cend && mu[j] > 0) break;
-      mu[j] = 0;
+      if (j == cstart) break; // Reached start of chromosome
+      if (inv[j] + j <= cend && inv[j] > 0) break; // Found valid mu
+      inv[j] = 0;
       j--;
     }
   }
+  fprintf(stderr, "\rTrimming rev-%s", cnames[N2chr - 1].c_str());
+  fflush(stderr);
   size_t cstart=cindices[N2chr-1], cend=cindices[N2chr], j;
   j = cend - 1;
   while (true)
   {
     if (j == cstart) break;
-    if (mu[j] + j < cend && mu[j] > 0) break;
-    mu[j] = 0;
+    if (inv[j] + j < cend && inv[j] > 0) break;
+    inv[j] = 0;
     j--;
   }
+  fprintf(stderr, "\r                                                 \r");
+  fflush(stderr);
 
   // Write  minimum unique length, left-anchored wiggle
   fprintf(stderr, "Writing MUL\n");
   fflush(stderr);
   ofstream outfile;
-  outfile.open (argv[3]);
+  outfile.open (mul_fname);
   bool prev;
+  size_t counter=1000000, sizeM=size/1000000;
   for (size_t i=0; i<Nchr; i++)
   {
     prev = false;
     for (size_t j=cindices[i]; j<cindices[i+1]; j++)
     {
-      if (mu[j] == 0) prev = false;
+      if (j >= counter)
+      {
+        fprintf(stderr, "\rWriting MUL %lu of %luM", counter/1000000, sizeM);
+        fflush(stderr);
+        counter += 1000000;
+      }
+      if (inv[j] == 0) prev = false;
       else
       {
         if (!prev) outfile << "fixedStep chrom=" + cnames[i] + " start=" +
                               to_string(j - cindices[i] + 1) + " step=1\n";
-        outfile << to_string(mu[j]) + "\n";
+        outfile << to_string(inv[j]) + "\n";
         prev = true;
       }
     }
@@ -323,25 +511,34 @@ int main(int argc, char *argv[])
   outfile.close();
 
   // Write  minimum unique length, right-anchored wiggle
+  fprintf(stderr, "\r                                                 \r");
   fprintf(stderr, "Writing MUR\n");
   fflush(stderr);
-  outfile.open (argv[4]);
+  outfile.open (mur_fname);
+  counter = 1000000;
   for (size_t i=0; i<Nchr; i++)
   {
     prev = false;
     for (size_t j=cindices[i]; j<cindices[i+1]; j++)
     {
-      if (mu[size2 - j - 1] == 0) prev = false;
+      if (j >= counter)
+      {
+        fprintf(stderr, "\rWriting MUR %lu of %luM", counter/1000000, sizeM);
+        fflush(stderr);
+        counter += 1000000;
+      }
+      if (inv[size2 - j - 1] == 0) prev = false;
       else
       {
         if (!prev) outfile << "fixedStep chrom=" + cnames[i] + " start=" +
                               to_string(j - cindices[i] + 1) + " step=1\n";
-        outfile << to_string(mu[size2 - j - 1]) + "\n";
+        outfile << to_string(inv[size2 - j - 1]) + "\n";
         prev = true;
       }
     }
   }
   outfile.close();
-
+  fprintf(stderr, "\r                                                 \r");
+  fflush(stderr);
   return 0;
 }
