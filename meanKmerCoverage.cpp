@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <cstring>
+#include <string.h>
 #include <ctpl_stl.h>
 #include <thread>
 
@@ -156,7 +158,7 @@ int main(int argc, char *argv[])
   for(apos = 1; apos < argc; ++apos)
     if(argv[apos][0] == '-')
     {
-      if (std::strncmp(argv[apos], "-t", 2) == 0)
+      if (strncmp(argv[apos], "-t", 2) == 0)
         threadN = atoi(&argv[apos][2]);
     } else
       break;
