@@ -182,6 +182,7 @@ void trim_LCP(int id, size_t sa_idx1)
 
 void find_mu(int id, size_t index)
 {
+  // Reusing the inv array to hold mu values
   size_t start=index*1000000, end=start+1000000;
   end = std::min(end, size2 - 1);
   size_t seq_idx;
@@ -466,7 +467,7 @@ int main(int argc, char *argv[])
       j--;
     }
   }
-  fprintf(stderr, "\rTrimming rev-%s", cnames[N2chr - 1].c_str());
+  fprintf(stderr, "\rTrimming rev-%s", cnames[0].c_str());
   fflush(stderr);
   size_t cstart=cindices[N2chr-1], cend=cindices[N2chr], j;
   j = cend - 1;

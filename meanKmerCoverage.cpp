@@ -43,12 +43,13 @@ bool load_wiggle_chrom(string &chrom, int32_t &end)
 {
   string cur, cur0, field, new_chrom="";
   int32_t pos=0, split, bufsize, start, counter=1000000;
+  end=0;
   mul.clear();
   while (getline(wigfile, cur))
   {
     if (cur[0] == 'f')
     {
-      end = pos;
+      pos = end;
       cur0 = cur;
       bufsize = cur0.size() + 1;
       while (cur0.length() > 0)
@@ -79,10 +80,11 @@ bool load_wiggle_chrom(string &chrom, int32_t &end)
         wigfile.seekg(-bufsize, ios_base::cur);
         break;
       }
+      end = pos;
     } else {
       mul.push_back(stoi(cur));
-      pos++;
-      if (pos >= counter)
+      end++;
+      if (end >= counter)
       {
         fprintf(stderr, "\rRead %iMbp of %s", counter / 1000000, chrom.c_str());
         fflush(stderr);
@@ -91,6 +93,7 @@ bool load_wiggle_chrom(string &chrom, int32_t &end)
     }
   }
   fprintf(stderr, "\r                               \r");
+  fprintf(stderr, "%s\t%i\n", chrom.c_str(), end);
   fflush(stderr);
   if (new_chrom == "")
     return false;
@@ -210,7 +213,7 @@ int main(int argc, char *argv[])
       if (new_time != current_time)
       {
         std::cerr << "\rScoring " << chrom << " job " << outpos
-                  << " of " << num_jobs;
+                  << " of " << num_jobs << "\n";
         current_time = new_time;
       }
     }
